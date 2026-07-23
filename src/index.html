@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self' data:;" />
+  <title>API Probe Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles/app.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="titlebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <h1>API Probe Lab</h1>
+          <p class="subtitle">Base URL / Key 提取 · 模型探测 · 真实多轮对话测试</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <span class="pill" id="platformPill">desktop</span>
+        <span class="pill dim">v1.2.0</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <div class="left-col">
+        <section class="panel paste-panel">
+          <div class="panel-head">
+            <h2>1. 粘贴原始文本</h2>
+            <button type="button" class="btn ghost" id="btnClearPaste">清空</button>
+          </div>
+          <textarea id="rawInput" spellcheck="false" placeholder="粘贴任意包含 Base URL 和 API Key 的文本&#10;&#10;支持示例：&#10;https://api.example.com/v1&#10;sk-xxxxxxxx&#10;&#10;或 base_url=... api_key=...&#10;或 Base64 编码的 Key"></textarea>
+          <div class="row actions">
+            <button type="button" class="btn primary" id="btnExtract">自动提取</button>
+            <button type="button" class="btn secondary" id="btnExtractAndProbe">提取并探测模型</button>
+          </div>
+          <div class="notes" id="extractNotes"></div>
+        </section>
+
+        <section class="panel config-panel">
+          <div class="panel-head">
+            <h2>2. 连接配置</h2>
+          </div>
+          <div class="form-grid">
+            <label class="field full">
+              <span>Base URL</span>
+              <input id="baseUrl" type="text" placeholder="https://api.example.com 或 .../v1" spellcheck="false" />
+            </label>
+            <label class="field full">
+              <span>API Key <em id="keyBadge" class="badge hide">Base64 已解码</em></span>
+              <div class="input-with-action">
+                <input id="apiKey" type="password" placeholder="sk-... 或自动解码后的 Key" spellcheck="false" />
+                <button type="button" class="btn tiny" id="btnToggleKey">显示</button>
+              </div>
+            </label>
+            <label class="field">
+              <span>/v1 策略</span>
+              <select id="v1Policy">
+                <option value="auto" selected>自动尝试（推荐）</option>
+                <option value="with">强制带 /v1</option>
+                <option value="without">强制不带 /v1</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>超时 (ms)</span>
+              <input id="timeoutMs" type="number" min="3000" step="1000" value="60000" />
+            </label>
+            <label class="field full">
+              <span>代理 Proxy <em id="proxyBadge" class="badge hide">系统代理</em></span>
+              <div class="input-with-action">
+                <input id="proxy" type="text" placeholder="自动读取系统代理，可手动修改" spellcheck="false" />
+                <button type="button" class="btn tiny" id="btnDetectProxy">读系统</button>
+                <button type="button" class="btn tiny" id="btnTestProxy">测代理</button>
+              </div>
+              <div class="composer-hint" id="proxyHint">启动时会自动读取系统/环境代理，可随时手动覆盖</div>
+            </label>
+            <label class="field full" style="flex-direction:row;align-items:center;gap:10px;">
+              <input id="useSystemProxy" type="checkbox" checked style="width:auto" />
+              <span style="color:var(--muted);font-size:12px;">优先使用系统代理（取消勾选后完全使用手动输入，可留空直连）</span>
+            </label>
+          </div>
+          <div class="row actions">
+            <button type="button" class="btn primary" id="btnProbe">探测模型列表</button>
+            <button type="button" class="btn ghost" id="btnCopyConfig">复制配置 JSON</button>
+          </div>
+          <div class="status-line" id="probeStatus"></div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h2>运行日志</h2>
+            <button type="button" class="btn tiny" id="btnClearLog">清空</button>
+          </div>
+          <pre class="log-box" id="logBox"></pre>
+        </section>
+      </div>
+
+      <div class="center-col">
+        <section class="panel chat-panel">
+          <div class="panel-head">
+            <h2>3. 真实对话测试</h2>
+            <div class="row gap-sm">
+              <button type="button" class="btn tiny" id="btnClearChat">清空对话</button>
+              <button type="button" class="btn tiny" id="btnToggleDetails">原始响应</button>
+            </div>
+          </div>
+
+          <div class="chat-toolbar">
+            <label class="field">
+              <span>模型</span>
+              <input id="chatModel" type="text" list="modelOptions" placeholder="选择或输入模型 ID" spellcheck="false" />
+              <datalist id="modelOptions"></datalist>
+            </label>
+            <label class="field">
+              <span>接口格式</span>
+              <select id="chatFormat">
+                <option value="auto" selected>自动探测</option>
+                <option value="chat_completions">chat/completions</option>
+                <option value="responses">responses</option>
+                <option value="messages">messages (Anthropic)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-bubble system">先探测模型，再在下方输入问题。Enter 发送，Shift+Enter 换行。</div>
+          </div>
+
+          <div class="status-line" id="chatStatus"></div>
+          <pre class="details-box" id="chatDetails"></pre>
+
+          <div class="chat-composer">
+            <div class="composer-main">
+              <textarea id="chatMessage" rows="2" spellcheck="false" placeholder="输入要发送给模型的问题…"></textarea>
+              <div class="composer-hint">Enter 发送 · Shift+Enter 换行 · 支持多轮上下文</div>
+            </div>
+            <button type="button" class="btn primary send" id="btnChat">发送</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="right-col">
+        <section class="panel models-panel">
+          <div class="panel-head">
+            <h2>4. 模型列表</h2>
+            <div class="row gap-sm">
+              <input id="modelFilter" type="search" placeholder="过滤模型..." />
+              <button type="button" class="btn tiny" id="btnCopyModels">复制</button>
+            </div>
+          </div>
+          <div class="meta-bar" id="probeMeta">尚未探测</div>
+          <div class="models-list" id="modelsList">
+            <div class="empty">探测成功后将显示可用模型，点击即可用于对话</div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="ui/app.js"></script>
+</body>
+</html>

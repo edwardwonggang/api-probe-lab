@@ -1,0 +1,11 @@
+node_modules/
+release/
+dist/
+.DS_Store
+*.log
+.idea/
+.vscode/
+*.asar
+.env
+.env.*
+release-*/
