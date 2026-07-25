@@ -39,7 +39,22 @@ function normalizeBaseUrl(url) {
       break;
     }
   }
+  // If still has a path, strip segments that look like embedded API keys
+  const parsed = tryParseUrl(u);
+  if (parsed && parsed.pathname && parsed.pathname.length > 1) {
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length >= 1) {
+      const keyish = segments.some((s) => s.length >= 16 && /^[A-Za-z0-9_\-.]{16,}$/.test(s));
+      if (keyish) {
+        u = parsed.origin;
+      }
+    }
+  }
   return stripTrailingUrlJunk(u);
+}
+
+function tryParseUrl(u) {
+  try { return new URL(u); } catch { return null; }
 }
 
 function looksLikeUrl(s) {
@@ -156,6 +171,22 @@ function extractCredentials(rawText) {
     };
   }
 
+  // Direct URL check: if text is a URL with key-like path segments, extract them immediately
+  try {
+    const parsedUrl = new URL(text);
+    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+    for (const pp of pathParts) {
+      if (pp.length >= 16 && /^[A-Za-z0-9_\-.]+$/.test(pp) && pp !== 'v1' && pp !== 'v2') {
+        keys.push(pp);
+        if (/^v[12][A-Za-z0-9+/]{8,}(=|==)?$/.test(pp)) {
+          keys.push(pp.slice(2));
+        }
+      }
+    }
+  } catch {
+    // not a URL, proceed with normal extraction
+  }
+
   let m;
   const labeled = [];
   KEY_LABEL_RE.lastIndex = 0;
@@ -170,6 +201,20 @@ function extractCredentials(rawText) {
   URL_RE.lastIndex = 0;
   while ((m = URL_RE.exec(text)) !== null) {
     urls.push(normalizeBaseUrl(m[0]));
+    try {
+      const parsed = new URL(m[0]);
+      for (const seg of parsed.pathname.split('/')) {
+        if (seg.length >= 16 && /^[A-Za-z0-9_\-./=+]+$/.test(seg) && seg !== 'v1' && seg !== 'v2') {
+          keys.push(seg);
+          // Also try stripping v1/v2 prefix and base64-decode
+          if (/^v[12][A-Za-z0-9+/]{8,}(=|==)?$/.test(seg)) {
+            keys.push(seg.slice(2));
+          }
+        }
+      }
+    } catch {
+      // ignore unparseable URL segments
+    }
   }
 
   OPENAI_SK_RE.lastIndex = 0;

@@ -1,4 +1,4 @@
-const { fetchWithProxy, joinUrl } = require('./http');
+const { fetchWithProxy, fetchWithProxyStream, joinUrl } = require('./http');
 const { normalizeBaseUrl } = require('./parser');
 const { authHeaders } = require('./probe');
 
@@ -279,7 +279,7 @@ async function chatTest(payload) {
               timeoutMs,
             });
             attempts.push({ format: fmt, bodyKeys: Object.keys(body || {}), ...result });
-            if (result.ok) {
+            if (result.ok && result.json) {
               const reply = extractReply(fmt, result.json, result.raw);
               return {
                 success: true,
@@ -322,8 +322,157 @@ function guessFormatOrder(model, hint) {
   return ['chat_completions', 'responses', 'messages'];
 }
 
+async function chatTestStream(payload, { onChunk = () => {}, onDone = () => {}, onError = () => {}, signal } = {}) {
+  const baseUrl = payload.baseUrl || '';
+  const effectiveBaseUrl = payload.effectiveBaseUrl || baseUrl;
+  const apiKey = String(payload.apiKey || '').trim();
+  const model = String(payload.model || '').trim();
+  const message = payload.message || '你好，请用一句话介绍你自己。';
+  const history = payload.history;
+  const proxy = payload.proxy || '';
+  const timeoutMs = Number(payload.timeoutMs) || 60000;
+  const authStyle = payload.authStyle || 'bearer';
+  let format = payload.format || 'auto';
+
+  if (!baseUrl && !effectiveBaseUrl) { onError(new Error('Base URL 不能为空')); return; }
+  if (!model) { onError(new Error('请选择或填写模型名')); return; }
+  if (!apiKey) { onError(new Error('API Key 不能为空')); return; }
+
+  const messages = normalizeHistory(history, message);
+  const formats =
+    format === 'auto'
+      ? guessFormatOrder(model, payload.hintFormat || payload.lastSuccessFormat)
+      : [format];
+
+  const bases = basesToTry(effectiveBaseUrl, baseUrl);
+  if (!bases.length) { onError(new Error('Base URL 无效')); return; }
+
+  for (const fmt of formats) {
+    const built = buildBodies(model, messages, fmt);
+
+    const headerVariants =
+      fmt === 'messages'
+        ? [
+            { ...authHeaders(apiKey, 'x-api-key'), ...built.extraHeaders },
+            { ...authHeaders(apiKey, 'bearer'), ...built.extraHeaders },
+          ]
+        : [
+            { ...authHeaders(apiKey, authStyle), ...built.extraHeaders },
+            { ...authHeaders(apiKey, 'bearer'), ...built.extraHeaders },
+            { ...authHeaders(apiKey, 'api-key'), ...built.extraHeaders },
+          ];
+
+    const seenHeaders = new Set();
+    const uniqueHeaders = [];
+    for (const h of headerVariants) {
+      const key = `${h.Authorization || ''}|${h['x-api-key'] || ''}|${h['api-key'] || ''}`;
+      if (seenHeaders.has(key)) continue;
+      seenHeaders.add(key);
+      uniqueHeaders.push(h);
+    }
+
+    for (const base of bases) {
+      const paths = /\/v1$/i.test(base)
+        ? built.pathCandidates.filter((p) => !p.startsWith('v1/'))
+        : built.pathCandidates;
+      for (const p of paths) {
+        const url = joinUrl(base, p);
+        for (const body of bodiesForFormat(built)) {
+          const streamBody = { ...body, stream: true };
+          for (const h of uniqueHeaders) {
+            try {
+              const res = await fetchWithProxyStream(url, {
+                method: 'POST',
+                headers: { ...h, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+                body: JSON.stringify(streamBody),
+                proxy,
+                timeoutMs,
+                signal,
+              });
+              if (!res.ok) continue;
+              const reader = res.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = '';
+              let accumulated = '';
+              let done = false;
+              let aborted = false;
+              const handleEvent = (event) => {
+                const data = event
+                  .split(/\r?\n/)
+                  .filter((line) => line.startsWith('data:'))
+                  .map((line) => line.slice(5).trimStart())
+                  .join('\n')
+                  .trim();
+                if (!data) return;
+                if (data === '[DONE]') {
+                  done = true;
+                  return;
+                }
+                try {
+                  const parsed = JSON.parse(data);
+                  const delta =
+                    parsed.choices?.[0]?.delta?.content ??
+                    parsed.delta?.text ??
+                    parsed.delta?.content?.[0]?.text ??
+                    parsed.content_block?.text ??
+                    parsed.response?.output_text?.delta ??
+                    (parsed.type === 'response.output_text.delta' ? parsed.delta : undefined);
+                  if (typeof delta === 'string' && delta) {
+                    accumulated += delta;
+                    onChunk(accumulated);
+                  }
+                } catch {
+                  // Ignore keep-alives and provider-specific non-JSON events.
+                }
+              };
+              const onAbort = () => { aborted = true; try { reader.cancel(); } catch (_) {} };
+              if (signal) {
+                if (signal.aborted) { aborted = true; }
+                else signal.addEventListener('abort', onAbort, { once: true });
+              }
+              try {
+              while (true) {
+                if (aborted) break;
+                const { done: sd, value } = await reader.read();
+                if (sd) break;
+                buffer += decoder.decode(value, { stream: true });
+                let separator;
+                while ((separator = buffer.match(/\r?\n\r?\n/)) !== null) {
+                  const event = buffer.slice(0, separator.index);
+                  buffer = buffer.slice(separator.index + separator[0].length);
+                  handleEvent(event);
+                  if (done) break;
+                }
+                if (done) break;
+              }
+              if (!done && buffer.trim()) handleEvent(buffer);
+              } finally {
+                if (signal) signal.removeEventListener('abort', onAbort);
+              }
+              if (aborted) {
+                if (accumulated) onDone(accumulated);
+                else onDone('');
+                return;
+              }
+              if (accumulated) { onDone(accumulated); return; }
+            } catch (err) {
+              if (signal && signal.aborted) {
+                // 中途停止：把已累计内容当作结果回传，结束本次流
+                return;
+              }
+              continue;
+            }
+          }
+        }
+      }
+    }
+  }
+  onError(new Error('所有格式/路径均未成功'));
+}
+
 module.exports = {
   chatTest,
+  chatTestStream,
   extractReply,
   guessFormatOrder,
   normalizeHistory,

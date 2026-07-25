@@ -34,7 +34,7 @@
             <button type="button" class="btn ghost" id="btnClearPaste">清空</button>
           </div>
           <textarea id="rawInput" spellcheck="false" placeholder="粘贴任意包含 Base URL 和 API Key 的文本&#10;&#10;支持示例：&#10;https://api.example.com/v1&#10;sk-xxxxxxxx&#10;&#10;或 base_url=... api_key=...&#10;或 Base64 编码的 Key"></textarea>
-          <div class="row actions">
+          <div class="paste-actions">
             <button type="button" class="btn primary" id="btnExtract">自动提取</button>
             <button type="button" class="btn secondary" id="btnExtractAndProbe">提取并探测模型</button>
           </div>
@@ -83,21 +83,13 @@
               <span style="color:var(--muted);font-size:12px;">优先使用系统代理（取消勾选后完全使用手动输入，可留空直连）</span>
             </label>
           </div>
-          <div class="row actions">
+          <div class="actions">
             <button type="button" class="btn primary" id="btnProbe">探测模型列表</button>
             <button type="button" class="btn ghost" id="btnCopyConfig">复制配置 JSON</button>
           </div>
-          <div class="status-line" id="probeStatus"></div>
-        </section>
-
-        <section class="panel log-panel">
-          <div class="panel-head">
-            <h2>运行日志</h2>
-            <button type="button" class="btn tiny" id="btnClearLog">清空</button>
-          </div>
-          <pre class="log-box" id="logBox"></pre>
-        </section>
-      </div>
+           <div class="status-line" id="probeStatus"></div>
+         </section>
+       </div>
 
       <div class="center-col">
         <section class="panel chat-panel">
@@ -112,7 +104,7 @@
           <div class="chat-toolbar">
             <label class="field">
               <span>模型</span>
-              <input id="chatModel" type="text" list="modelOptions" placeholder="选择或输入模型 ID" spellcheck="false" />
+              <input id="chatModel" type="text" list="modelOptions" placeholder="自动加载模型列表" spellcheck="false" />
               <datalist id="modelOptions"></datalist>
             </label>
             <label class="field">
@@ -135,10 +127,10 @@
 
           <div class="chat-composer">
             <div class="composer-main">
-              <textarea id="chatMessage" rows="2" spellcheck="false" placeholder="输入要发送给模型的问题…"></textarea>
+              <textarea id="chatMessage" rows="2" spellcheck="false" placeholder="输入要发送给模型的问题… Enter 发送"></textarea>
               <div class="composer-hint">Enter 发送 · Shift+Enter 换行 · 支持多轮上下文</div>
+              <button type="button" class="btn primary send" id="btnChat">发送</button>
             </div>
-            <button type="button" class="btn primary send" id="btnChat">发送</button>
           </div>
         </section>
       </div>
@@ -156,6 +148,14 @@
           <div class="models-list" id="modelsList">
             <div class="empty">探测成功后将显示可用模型，点击即可用于对话</div>
           </div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h2>运行日志</h2>
+            <button type="button" class="btn tiny" id="btnClearLog">清空</button>
+          </div>
+          <pre class="log-box" id="logBox"></pre>
         </section>
       </div>
     </main>

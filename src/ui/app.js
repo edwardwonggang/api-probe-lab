@@ -8,6 +8,8 @@ const state = {
   messages: [], // {role, content}
   lastSuccessFormat: null,
   sending: false,
+  activeRequestId: null, // 当前流式请求 id，用于中途停止
+  stopping: false, // 用户是否已主动请求停止本次对话
   showDetails: false,
   systemProxy: null,
   proxyManualOverride: false,
@@ -138,7 +140,14 @@ function appendMessage(role, content, meta) {
 
 async function onExtract() {
   const raw = $('rawInput').value;
-  const result = await apiProbe.extractCredentials(raw);
+  let result;
+  try {
+    result = await apiProbe.extractCredentials(raw);
+  } catch (err) {
+    log(`❌ 提取失败：${err.message || err}`);
+    console.error('extract error:', err);
+    return;
+  }
   if (result.baseUrl) $('baseUrl').value = result.baseUrl;
   if (result.apiKey) $('apiKey').value = result.apiKey;
   $('keyBadge').classList.toggle('hide', !result.apiKeyDecoded);
@@ -157,7 +166,8 @@ function mask(key) {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
-function renderModels(models) {
+function renderModels(models, opts = {}) {
+  const maxDisplay = opts.maxDisplay || 50;
   state.models = models || [];
   const filter = ($('modelFilter').value || '').toLowerCase();
   const list = $('modelsList');
@@ -170,8 +180,10 @@ function renderModels(models) {
     return;
   }
 
+  const shown = filtered.slice(0, maxDisplay);
+  const remaining = filtered.length - shown.length;
   list.innerHTML = '';
-  for (const model of filtered) {
+  for (const model of shown) {
     const opt = document.createElement('option');
     opt.value = model;
     options.appendChild(opt);
@@ -187,6 +199,12 @@ function renderModels(models) {
       log(`已选择模型：${model}`);
     });
     list.appendChild(item);
+  }
+  if (remaining > 0) {
+    const more = document.createElement('div');
+    more.className = 'empty';
+    more.textContent = `还有 ${remaining} 个模型（请在上方过滤框中搜索）`;
+    list.appendChild(more);
   }
 }
 
@@ -212,10 +230,8 @@ async function onProbe() {
     if (result.success) {
       const models = result.models || [];
       renderModels(models);
-      if (models[0] && !$('chatModel').value) {
-        state.selectedModel = models[0];
-        $('chatModel').value = models[0];
-      }
+      state.selectedModel = models[0] || '';
+      $('chatModel').value = models[0] || 'none';
       const meta = [
         `有效 Base：${result.effectiveBaseUrl}`,
         `鉴权：${result.authStyle}`,
@@ -238,6 +254,8 @@ async function onProbe() {
       appendMessage('system', `模型探测完成，共 ${models.length} 个。可在中间区域开始对话。`);
     } else {
       renderModels([]);
+      state.selectedModel = '';
+      $('chatModel').value = 'none';
       $('probeMeta').textContent = '探测失败';
       setStatus($('probeStatus'), result.error || '探测失败', 'err');
       log(result.error || '探测失败', 'error');
@@ -255,9 +273,18 @@ async function onProbe() {
   }
 }
 
+function stopStream() {
+  if (!state.sending || !state.activeRequestId) return;
+  state.stopping = true;
+  try { apiProbe.streamChatStop && apiProbe.streamChatStop(state.activeRequestId); } catch (_) {}
+  log('已请求停止当前对话流');
+  setStatus($('chatStatus'), '正在停止…', 'busy');
+}
+
 async function onChat() {
   if (state.sending) {
-    log('正在发送中，请稍候…');
+    // 正在发送时点击 = 停止
+    stopStream();
     return;
   }
 
@@ -277,9 +304,9 @@ async function onChat() {
     appendMessage('error', '请先填写 API Key');
     return;
   }
-  if (!model) {
-    setStatus($('chatStatus'), '请选择或填写模型', 'err');
-    appendMessage('error', '请先选择模型（右侧列表点击，或手动填写）');
+  if (!model || model === 'none') {
+    setStatus($('chatStatus'), '请先在右侧选择一个模型', 'err');
+    appendMessage('error', '请先探测模型列表，再选择模型，或手动填写型号');
     return;
   }
   if (!message) {
@@ -298,17 +325,24 @@ async function onChat() {
     .map((m) => ({ role: m.role, content: m.content }));
 
   state.sending = true;
-  $('btnChat').disabled = true;
-  $('btnChat').textContent = '发送中…';
+  state.stopping = false;
+  state.activeRequestId = null;
+  $('btnChat').disabled = false;
+  $('btnChat').textContent = '停止';
+  $('btnChat').classList.add('stop');
   setStatus($('chatStatus'), '正在请求模型…', 'busy');
   log(`对话发送 format=${format} model=${model} chars=${message.length}`);
 
+  // create placeholder assistant message
+  appendMessage('assistant', '▊', '流式输出…');
+  const startTime = Date.now();
+
   try {
-    if (!apiProbe || typeof apiProbe.chatTest !== 'function') {
-      throw new Error('apiProbe.chatTest 不可用（preload 未注入）');
+    if (!apiProbe || typeof apiProbe.streamChatStart !== 'function') {
+      throw new Error('streamChatStart 不可用（preload 未注入）');
     }
 
-    const result = await apiProbe.chatTest({
+    const payload = {
       ...cfg,
       model,
       message,
@@ -318,50 +352,90 @@ async function onChat() {
       authStyle: probe.authStyle || 'bearer',
       lastSuccessFormat: state.lastSuccessFormat,
       timeoutMs: Math.max(cfg.timeoutMs || 0, 60000),
-    });
+    };
 
-    if (result.success) {
-      state.lastSuccessFormat = result.format;
-      if ($('chatFormat').value === 'auto') {
-        // keep auto, but remember
-      } else if (!format || format === 'auto') {
-        // noop
+    const requestId = apiProbe.streamChatStart(payload);
+    state.activeRequestId = requestId;
+    let fullContent = '';
+    let stopped = false;
+
+    const chunkHandler = ({ requestId: rid, text }) => {
+      if (rid !== requestId) return;
+      fullContent = text;
+      const last = state.messages[state.messages.length - 1];
+      if (last && last.role === 'assistant') {
+        last.content = text + '▊';
+        renderChat();
       }
-      setStatus(
-        $('chatStatus'),
-        `成功 · ${result.format} · ${result.latencyMs}ms`,
-        'ok'
-      );
-      appendMessage(
-        'assistant',
-        result.reply || '(空回复)',
-        `${result.format} · ${result.latencyMs}ms · ${result.url}`
-      );
-      $('chatDetails').textContent = result.raw || '';
-      log(`对话成功：${result.format} @ ${result.url} (${result.latencyMs}ms)`, 'ok');
-    } else {
-      setStatus($('chatStatus'), result.error || '对话失败', 'err');
-      const detail = (result.attempts || [])
-        .slice(0, 12)
-        .map((a) => `- [${a.format}] ${a.status || 0} ${a.url}\n  ${a.error || ''}`)
-        .join('\n');
-      appendMessage('error', `${result.error || '对话失败'}\n\n${detail}`);
-      $('chatDetails').textContent = detail;
-      log(result.error || '对话失败', 'error');
-      (result.attempts || []).slice(0, 8).forEach((a) => {
-        log(`[${a.format}] ${a.url} => ${a.error || a.status}`, 'error');
-      });
+    };
+
+    const doneHandler = ({ requestId: rid, text }) => {
+      if (rid !== requestId) return;
+      cleanup();
+      if (text) fullContent = text;
+      const wasStopped = state.stopping;
+      const latency = Date.now() - startTime;
+      const last = state.messages[state.messages.length - 1];
+      if (last && last.role === 'assistant') {
+        const noContent = last.content === '▊';
+        if (noContent && !fullContent) {
+          state.messages.pop();
+        } else {
+          last.content = fullContent || (noContent ? '(已停止，无内容)' : '(已停止)');
+          last.meta = wasStopped ? `已停止 · ${latency}ms` : `完成 · ${latency}ms`;
+        }
+        renderChat();
+      }
+      setStatus($('chatStatus'), wasStopped ? '已停止' : `成功 · ${latency}ms`, wasStopped ? 'busy' : 'ok');
+      log(wasStopped ? `对话已停止 (${latency}ms)` : `对话完成 (${latency}ms)`, wasStopped ? 'info' : 'ok');
+      finalize();
+    };
+
+    const errorHandler = ({ requestId: rid, error }) => {
+      if (rid !== requestId) return;
+      cleanup();
+      const last = state.messages[state.messages.length - 1];
+      if (last && last.role === 'assistant' && last.content === '▊') {
+        // only remove placeholder if no content was streamed
+        state.messages.pop();
+      }
+      setStatus($('chatStatus'), error || '对话失败', 'err');
+      appendMessage('error', error || '对话失败');
+      log(error || '对话失败', 'error');
+      finalize();
+    };
+
+    apiProbe.streamChatOnChunk(chunkHandler);
+    apiProbe.streamChatOnDone(doneHandler);
+    apiProbe.streamChatOnError(errorHandler);
+
+    function cleanup() {
+      apiProbe.streamChatOff();
+    }
+
+    function finalize() {
+      state.sending = false;
+      state.activeRequestId = null;
+      state.stopping = false;
+      $('btnChat').disabled = false;
+      $('btnChat').textContent = '发送';
+      $('btnChat').classList.remove('stop');
     }
   } catch (err) {
     const msg = err?.message || String(err);
+    const last = state.messages[state.messages.length - 1];
+    if (last && last.role === 'assistant' && last.content === '▊') {
+      state.messages.pop();
+    }
     setStatus($('chatStatus'), msg, 'err');
     appendMessage('error', msg);
-    $('chatDetails').textContent = msg;
     log(msg, 'error');
-  } finally {
     state.sending = false;
+    state.activeRequestId = null;
+    state.stopping = false;
     $('btnChat').disabled = false;
     $('btnChat').textContent = '发送';
+    $('btnChat').classList.remove('stop');
   }
 }
 
@@ -424,7 +498,7 @@ function persistConfig() {
 
 function wire() {
   if (typeof apiProbe === 'undefined') {
-    document.body.innerHTML = '<div style="padding:40px;color:#fff;font-family:sans-serif">preload 失败：apiProbe 未注入。请用 npm start 或打包后的应用启动，不要直接打开 html。</div>';
+    document.body.innerHTML = '<div style="padding:40px;color:var(--text);font-family:sans-serif;max-width:640px;margin:60px auto;line-height:1.6">preload 失败：apiProbe 未注入。请用 npm start 或打包后的应用启动，不要直接打开 html。</div>';
     return;
   }
 

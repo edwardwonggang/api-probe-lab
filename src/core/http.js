@@ -5,6 +5,12 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 
+function abortError(message = 'Request aborted') {
+  const err = new Error(message);
+  err.name = 'AbortError';
+  return err;
+}
+
 function normalizeProxy(proxy) {
   const p = String(proxy || '').trim();
   if (!p) return '';
@@ -30,7 +36,7 @@ function createProxyDispatcher(proxy) {
   });
 }
 
-function fetchWithNodeAgents(url, { method, headers, body, proxy, timeoutMs }) {
+function fetchWithNodeAgents(url, { method, headers, body, proxy, timeoutMs, signal }) {
   return new Promise((resolve, reject) => {
     const p = normalizeProxy(proxy);
     const u = new URL(url);
@@ -79,6 +85,15 @@ function fetchWithNodeAgents(url, { method, headers, body, proxy, timeoutMs }) {
     req.on('timeout', () => {
       req.destroy(new Error(`Request timeout after ${timeout}ms`));
     });
+    const onAbort = () => req.destroy(abortError());
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy(abortError());
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+      req.once('close', () => signal.removeEventListener('abort', onAbort));
+    }
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -101,7 +116,7 @@ async function fetchWithProxy(url, options = {}) {
   try {
     // SOCKS -> node path
     if (p && /^socks/i.test(p)) {
-      return await fetchWithNodeAgents(url, { method, headers, body, proxy: p, timeoutMs });
+      return await fetchWithNodeAgents(url, { method, headers, body, proxy: p, timeoutMs, signal: controller.signal });
     }
 
     const dispatcher = createProxyDispatcher(p);
@@ -123,10 +138,16 @@ async function fetchWithProxy(url, options = {}) {
       json: async () => JSON.parse(buf.toString('utf8')),
     };
   } catch (err) {
+    // Do not retry an explicit cancellation or timeout through another
+    // transport: the signal is already aborted and retrying can leave a
+    // streaming caller waiting forever on Windows.
+    if (controller.signal.aborted) {
+      throw abortError(`Request timeout after ${timeoutMs}ms`);
+    }
     // Fallback for edge proxy cases
     if (p && !/^socks/i.test(p)) {
       try {
-        return await fetchWithNodeAgents(url, { method, headers, body, proxy: p, timeoutMs });
+        return await fetchWithNodeAgents(url, { method, headers, body, proxy: p, timeoutMs, signal: controller.signal });
       } catch (err2) {
         throw err2;
       }
@@ -146,8 +167,78 @@ function joinUrl(base, pathPart) {
   return `${b}/${p}`;
 }
 
+async function fetchWithProxyStream(url, options = {}) {
+  const { method = 'GET', headers = {}, body, proxy = '', timeoutMs = 30000, signal } = options;
+  const p = normalizeProxy(proxy);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // 联动外部 signal（用于中途停止）
+  const onExternalAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) { clearTimeout(timer); throw abortError(); }
+    signal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
+  try {
+    if (p && /^socks/i.test(p)) {
+      const response = await fetchWithNodeAgents(url, {
+        method, headers, body, proxy: p, timeoutMs, signal: controller.signal,
+      });
+      return bufferedStreamResponse(response);
+    }
+
+    const dispatcher = createProxyDispatcher(p);
+    const res = await undiciFetch(url, {
+      method, headers, body, dispatcher, signal: controller.signal,
+    });
+    return res;
+  } catch (err) {
+    if (controller.signal.aborted || (signal && signal.aborted)) {
+      throw abortError(signal?.aborted ? 'Request aborted' : `Request timeout after ${timeoutMs}ms`);
+    }
+    if (p && !/^socks/i.test(p)) {
+      try {
+        const response = await fetchWithNodeAgents(url, {
+          method, headers, body, proxy: p, timeoutMs, signal: controller.signal,
+        });
+        return bufferedStreamResponse(response);
+      } catch (err2) { throw err2; }
+    }
+    if (err.name === 'AbortError') throw new Error(`Request timeout after ${timeoutMs}ms`);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onExternalAbort);
+  }
+}
+
+// Node's proxy agents return a small Response-like object rather than an
+// undici Response. Wrap it as a one-shot Web stream while preserving status
+// and headers so callers can still distinguish 4xx/5xx from a valid stream.
+function bufferedStreamResponse(response) {
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(await response.text()));
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+  });
+  return {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+    body: stream,
+  };
+}
+
 module.exports = {
   fetchWithProxy,
+  fetchWithProxyStream,
   createProxyDispatcher,
   normalizeProxy,
   joinUrl,

@@ -1,6 +1,6 @@
 {
   "name": "api-probe-lab",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Desktop tool to extract Base URL / API Key, probe OpenAI-compatible endpoints, list models, and test chat formats.",
   "main": "electron/main.js",
   "author": "API Probe Lab",
@@ -13,7 +13,7 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win --x64",
     "dist:all": "electron-builder --mac --win",
-    "test": "node scripts/smoke-parser.js"
+    "test": "node scripts/smoke-parser.js && node scripts/smoke-stream.js"
   },
   "dependencies": {
     "https-proxy-agent": "^7.0.6",

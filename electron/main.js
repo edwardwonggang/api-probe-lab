@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, clipboard, nativeTheme } = require('
 const path = require('path');
 const { extractCredentials } = require('../src/core/parser');
 const { probeEndpoint } = require('../src/core/probe');
-const { chatTest } = require('../src/core/chat');
+const { chatTest, chatTestStream } = require('../src/core/chat');
 const { createProxyDispatcher, normalizeProxy } = require('../src/core/http');
 const { detectSystemProxy } = require('../src/core/system-proxy');
 
@@ -14,7 +14,7 @@ function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 680,
-    backgroundColor: '#0b0f14',
+    backgroundColor: '#ffffff',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
@@ -40,7 +40,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  nativeTheme.themeSource = 'dark';
+  nativeTheme.themeSource = 'light';
   createWindow();
 
   app.on('activate', () => {
@@ -65,6 +65,35 @@ ipcMain.handle('chat-test', async (_event, payload) => {
     return await chatTest(payload || {});
   } catch (err) {
     return { success: false, error: err.message || String(err), attempts: [] };
+  }
+});
+
+// requestId -> AbortController，用于中途停止流式对话
+const activeStreams = new Map();
+
+ipcMain.on('stream-chat-start', async (event, { requestId, payload }) => {
+  const controller = new AbortController();
+  activeStreams.set(requestId, controller);
+  const cleanup = () => activeStreams.delete(requestId);
+  try {
+    await chatTestStream(payload || {}, {
+      signal: controller.signal,
+      onChunk: (text) => event.sender.send('stream-chat-chunk', { requestId, text }),
+      onDone: (text) => { event.sender.send('stream-chat-done', { requestId, text }); cleanup(); },
+      onError: (err) => { event.sender.send('stream-chat-error', { requestId, error: err.message || String(err) }); cleanup(); },
+    });
+  } catch (err) {
+    event.sender.send('stream-chat-error', { requestId, error: err.message || String(err) });
+    cleanup();
+  }
+});
+
+// 前端请求停止某次流式对话
+ipcMain.on('stream-chat-stop', (_event, { requestId }) => {
+  const controller = activeStreams.get(requestId);
+  if (controller) {
+    try { controller.abort(); } catch (_) {}
+    activeStreams.delete(requestId);
   }
 });
 
