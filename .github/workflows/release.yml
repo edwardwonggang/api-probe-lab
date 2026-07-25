@@ -1,0 +1,84 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            os: macos-14
+            command: npm run dist:mac
+            artifact: macos-arm64
+            paths: |
+              release/*.dmg
+              release/*.dmg.blockmap
+          - name: Windows x64
+            os: windows-latest
+            command: npm run dist:win
+            artifact: windows-x64
+            paths: |
+              release/*.exe
+              release/*-win.zip
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build package
+        run: ${{ matrix.command }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.paths }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS.txt
+
+      - name: Create release and upload products
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          release-assets/*
+          --verify-tag
+          --generate-notes
+          --title "API Probe Lab $GITHUB_REF_NAME"

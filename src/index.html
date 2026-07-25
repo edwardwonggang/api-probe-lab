@@ -22,7 +22,7 @@
       </div>
       <div class="header-meta">
         <span class="pill" id="platformPill">desktop</span>
-        <span class="pill dim">v1.2.0</span>
+        <span class="pill dim">v1.3.0</span>
       </div>
     </header>
 
@@ -33,7 +33,7 @@
             <h2>1. 粘贴原始文本</h2>
             <button type="button" class="btn ghost" id="btnClearPaste">清空</button>
           </div>
-          <textarea id="rawInput" spellcheck="false" placeholder="粘贴任意包含 Base URL 和 API Key 的文本&#10;&#10;支持示例：&#10;https://api.example.com/v1&#10;sk-xxxxxxxx&#10;&#10;或 base_url=... api_key=...&#10;或 Base64 编码的 Key"></textarea>
+          <textarea id="rawInput" spellcheck="false" placeholder="粘贴包含 URL / Key 的任意文本&#10;&#10;支持单行、多行、JSON、环境变量、curl：&#10;https://api.example.com/v1&#10;vendor_key-xxxxxxxx&#10;&#10;字段名可有可无；支持 Base64 / Base64URL"></textarea>
           <div class="paste-actions">
             <button type="button" class="btn primary" id="btnExtract">自动提取</button>
             <button type="button" class="btn secondary" id="btnExtractAndProbe">提取并探测模型</button>

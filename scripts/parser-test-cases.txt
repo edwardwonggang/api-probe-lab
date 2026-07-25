@@ -1,0 +1,437 @@
+# API Probe Lab 宽松解析测试集
+#
+# 这是自动化测试与人工复制测试共用的单一文本。
+# 所有 Key 都是虚构值，不包含真实凭据。
+# <empty> 表示该字段预期为空。
+
+=== 01_same_line_unlabeled | 单行：URL 和无字段 Key ===
+EXPECT_BASE_URL=https://api.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://api.example.com/v1 vendor_key-1234567890abcdef
+--- END ---
+
+=== 02_multiline_unlabeled | 多行：URL 和无字段 Key ===
+EXPECT_BASE_URL=https://api.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://api.example.com/v1
+vendor_key-1234567890abcdef
+--- END ---
+
+=== 03_pipe_separator | 单行：竖线分隔 ===
+EXPECT_BASE_URL=https://pipe.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://pipe.example.com/v1|vendor_key-1234567890abcdef
+--- END ---
+
+=== 04_key_before_url | 单行：Key 在 URL 前面 ===
+EXPECT_BASE_URL=https://reverse.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+vendor_key-1234567890abcdef https://reverse.example.com/v1
+--- END ---
+
+=== 05_labeled_equals | 字段：等号格式 ===
+EXPECT_BASE_URL=https://labeled.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+base_url=https://labeled.example.com/v1 api_key=vendor_key-1234567890abcdef
+--- END ---
+
+=== 06_labeled_spaces | 字段：带空格的名称和冒号 ===
+EXPECT_BASE_URL=https://spaces.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+Base URL: https://spaces.example.com/v1
+API Key: vendor_key-1234567890abcdef
+--- END ---
+
+=== 07_json | JSON 双引号字段 ===
+EXPECT_BASE_URL=https://json.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+{"base_url":"https://json.example.com/v1","api_key":"vendor_key-1234567890abcdef"}
+--- END ---
+
+=== 08_nested_json | 嵌套 JSON 与通用字段名 ===
+EXPECT_BASE_URL=https://nested.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+{"provider":{"endpoint":"https://nested.example.com/v1/models","credential":"vendor_key-1234567890abcdef"}}
+--- END ---
+
+=== 09_json_camel_case | JSON camelCase 字段 ===
+EXPECT_BASE_URL=https://camel.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+{"baseUrl":"https://camel.example.com/v1","apiKey":"vendor_key-1234567890abcdef"}
+--- END ---
+
+=== 10_json_array | JSON 数组中的配置 ===
+EXPECT_BASE_URL=https://array.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+[{"name":"demo"},{"server":"https://array.example.com/v1","secret":"vendor_key-1234567890abcdef"}]
+--- END ---
+
+=== 11_yaml_quoted | YAML：带引号字段值 ===
+EXPECT_BASE_URL=https://yaml.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+base_url: "https://yaml.example.com/v1"
+api_key: "vendor_key-1234567890abcdef"
+--- END ---
+
+=== 12_toml_single_quotes | TOML：单引号字段值 ===
+EXPECT_BASE_URL=https://toml.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+endpoint = 'https://toml.example.com/v1'
+token = 'vendor_key-1234567890abcdef'
+--- END ---
+
+=== 13_environment_variables | 环境变量与 export ===
+EXPECT_BASE_URL=https://env.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+export OPENAI_BASE_URL=https://env.example.com/v1
+export OPENAI_API_KEY=vendor_key-1234567890abcdef
+--- END ---
+
+=== 14_provider_environment | 供应商环境变量名 ===
+EXPECT_BASE_URL=https://provider.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+OPENAI_API_BASE=https://provider.example.com/v1
+ANTHROPIC_AUTH_TOKEN=vendor_key-1234567890abcdef
+--- END ---
+
+=== 15_curl_bearer | curl Authorization Bearer ===
+EXPECT_BASE_URL=https://bearer.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+curl https://bearer.example.com/v1/models -H "Authorization: Bearer vendor_key-1234567890abcdef"
+--- END ---
+
+=== 16_curl_x_api_key | curl x-api-key ===
+EXPECT_BASE_URL=https://xheader.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+curl -H "x-api-key: vendor_key-1234567890abcdef" https://xheader.example.com/v1/models
+--- END ---
+
+=== 17_http_headers | HTTP Header 与 Host ===
+EXPECT_BASE_URL=https://headers.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+Host: headers.example.com
+Authorization: Bearer vendor_key-1234567890abcdef
+Content-Type: application/json
+--- END ---
+
+=== 18_command_flags | 命令行参数 ===
+EXPECT_BASE_URL=https://flags.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+probe --base-url https://flags.example.com/v1 --api-key vendor_key-1234567890abcdef
+--- END ---
+
+=== 19_prose_unlabeled | 普通段落中的无字段 Key ===
+EXPECT_BASE_URL=https://prose.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+请使用 https://prose.example.com/v1 和凭据 vendor_key-1234567890abcdef 帮我测试模型。
+--- END ---
+
+=== 20_schemeless_url | 无协议、无字段 URL ===
+EXPECT_BASE_URL=https://schemeless.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+schemeless.example.com/v1
+vendor_key-1234567890abcdef
+--- END ---
+
+=== 21_labeled_host | 无协议、带字段 Host ===
+EXPECT_BASE_URL=https://host.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+host=host.example.com/v1
+key=vendor_key-1234567890abcdef
+--- END ---
+
+=== 22_url_query_key | URL 查询参数中的 Key ===
+EXPECT_BASE_URL=https://query.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://query.example.com/v1?api_key=vendor_key-1234567890abcdef
+--- END ---
+
+=== 23_url_userinfo_key | URL 用户信息中的 Key ===
+EXPECT_BASE_URL=https://userinfo.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://apiuser:vendor_key-1234567890abcdef@userinfo.example.com/v1
+--- END ---
+
+=== 24_comma_separator | 逗号和分号分隔 ===
+EXPECT_BASE_URL=https://comma.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://comma.example.com/v1, vendor_key-1234567890abcdef;
+--- END ---
+
+=== 25_markdown_code_block | Markdown 代码块 ===
+EXPECT_BASE_URL=https://markdown.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+```env
+BASE_URL=https://markdown.example.com/v1
+API_KEY=vendor_key-1234567890abcdef
+```
+--- END ---
+
+=== 26_standard_base64_key | 标准 Base64 Key ===
+EXPECT_BASE_URL=https://base64.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=true
+--- INPUT ---
+https://base64.example.com/v1
+dmVuZG9yX2tleS0xMjM0NTY3ODkwYWJjZGVm
+--- END ---
+
+=== 27_unpadded_base64_mod2 | 无 padding Base64，长度模 4 为 2 ===
+EXPECT_BASE_URL=https://unpadded2.example.com
+EXPECT_API_KEY=vendor_key-12345678
+EXPECT_DECODED=true
+--- INPUT ---
+https://unpadded2.example.com/v1
+dmVuZG9yX2tleS0xMjM0NTY3OA
+--- END ---
+
+=== 28_unpadded_base64_mod3 | 无 padding Base64，长度模 4 为 3 ===
+EXPECT_BASE_URL=https://unpadded3.example.com
+EXPECT_API_KEY=vendor_key-123456789
+EXPECT_DECODED=true
+--- INPUT ---
+https://unpadded3.example.com/v1
+dmVuZG9yX2tleS0xMjM0NTY3ODk
+--- END ---
+
+=== 29_base64url_key | 含减号的 Base64URL Key ===
+EXPECT_BASE_URL=https://base64url.example.com
+EXPECT_API_KEY=vendor_key-PAzYtg~E0Jhg
+EXPECT_DECODED=true
+--- INPUT ---
+https://base64url.example.com/v1
+dmVuZG9yX2tleS1QQXpZdGd-RTBKaGc
+--- END ---
+
+=== 30_labeled_base64_key | 字段中的 Base64 Key ===
+EXPECT_BASE_URL=https://labeled-b64.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=true
+--- INPUT ---
+BASE_URL=https://labeled-b64.example.com/v1
+API_KEY=dmVuZG9yX2tleS0xMjM0NTY3ODkwYWJjZGVm
+--- END ---
+
+=== 31_base64_json_blob | 整段 Base64 JSON ===
+EXPECT_BASE_URL=https://blob.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=true
+--- INPUT ---
+eyJjb25maWciOnsiYmFzZV91cmwiOiJodHRwczovL2Jsb2IuZXhhbXBsZS5jb20vdjEiLCJhcGlfa2V5IjoidmVuZG9yX2tleS0xMjM0NTY3ODkwYWJjZGVmIn19
+--- END ---
+
+=== 32_base64_config_blob | 整段 Base64 多行配置 ===
+EXPECT_BASE_URL=https://encoded.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=true
+--- INPUT ---
+QkFTRV9VUkw9aHR0cHM6Ly9lbmNvZGVkLmV4YW1wbGUuY29tL3YxCkFQSV9LRVk9dmVuZG9yX2tleS0xMjM0NTY3ODkwYWJjZGVm
+--- END ---
+
+=== 33_double_base64 | 双层 Base64 URL 与 Key ===
+EXPECT_BASE_URL=https://double.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=true
+--- INPUT ---
+YUhSMGNITTZMeTlrYjNWaWJHVXVaWGhoYlhCc1pTNWpiMjB2ZGpFS2RtVnVaRzl5WDJ0bGVTMHhNak0wTlRZM09Ea3dZV0pqWkdWbQ==
+--- END ---
+
+=== 34_base64_url_only | Base64 编码的 URL ===
+EXPECT_BASE_URL=https://encoded-url.example.com
+EXPECT_API_KEY=<empty>
+EXPECT_DECODED=false
+--- INPUT ---
+aHR0cHM6Ly9lbmNvZGVkLXVybC5leGFtcGxlLmNvbS92MQ
+--- END ---
+
+=== 35_key_only | 只粘贴明文 Key ===
+EXPECT_BASE_URL=<empty>
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+vendor_key-1234567890abcdef
+--- END ---
+
+=== 36_url_only | 只粘贴 URL ===
+EXPECT_BASE_URL=https://url-only.example.com
+EXPECT_API_KEY=<empty>
+EXPECT_DECODED=false
+--- INPUT ---
+https://url-only.example.com/v1
+--- END ---
+
+=== 37_jwt_key | JWT 形式 Key ===
+EXPECT_BASE_URL=https://jwt.example.com
+EXPECT_API_KEY=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fake_signature_123
+EXPECT_DECODED=false
+--- INPUT ---
+https://jwt.example.com/v1
+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fake_signature_123
+--- END ---
+
+=== 38_openai_key | OpenAI sk- Key ===
+EXPECT_BASE_URL=https://openai.example.com
+EXPECT_API_KEY=sk-test-abcdefghijklmnopqrstuvwxyz123456
+EXPECT_DECODED=false
+--- INPUT ---
+https://openai.example.com/v1 sk-test-abcdefghijklmnopqrstuvwxyz123456
+--- END ---
+
+=== 39_anthropic_key | Anthropic sk-ant- Key ===
+EXPECT_BASE_URL=https://anthropic.example.com
+EXPECT_API_KEY=sk-ant-test_abcdefghijklmnopqrstuvwxyz123456
+EXPECT_DECODED=false
+--- INPUT ---
+endpoint=https://anthropic.example.com/v1/messages
+secret=sk-ant-test_abcdefghijklmnopqrstuvwxyz123456
+--- END ---
+
+=== 40_hex_key | 纯十六进制 Key ===
+EXPECT_BASE_URL=https://hex.example.com
+EXPECT_API_KEY=0123456789abcdef0123456789abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://hex.example.com/v1
+0123456789abcdef0123456789abcdef
+--- END ---
+
+=== 41_short_labeled_key | 较短但有字段名的 Key ===
+EXPECT_BASE_URL=https://short.example.com
+EXPECT_API_KEY=abc-1234
+EXPECT_DECODED=false
+--- INPUT ---
+server=https://short.example.com/v1
+api_key=abc-1234
+--- END ---
+
+=== 42_placeholder_and_real | 忽略占位符并选择真实 Key ===
+EXPECT_BASE_URL=https://real.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+BASE_URL=https://real.example.com/v1
+OLD_API_KEY=your_api_key
+API_KEY=vendor_key-1234567890abcdef
+--- END ---
+
+=== 43_full_models_endpoint | 完整 models 端点归一化 ===
+EXPECT_BASE_URL=https://models.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://models.example.com/v1/models
+vendor_key-1234567890abcdef
+--- END ---
+
+=== 44_full_chat_endpoint | 完整 chat/completions 端点归一化 ===
+EXPECT_BASE_URL=https://chat.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+endpoint: https://chat.example.com/v1/chat/completions
+authorization: vendor_key-1234567890abcdef
+--- END ---
+
+=== 45_multiple_urls_labeled_wins | 多 URL 时带字段的 URL 优先 ===
+EXPECT_BASE_URL=https://chosen.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+文档：https://docs.example.com/help
+BASE_URL=https://chosen.example.com/v1
+API_KEY=vendor_key-1234567890abcdef
+--- END ---
+
+=== 46_multiple_keys_labeled_wins | 多 Key 时带字段的 Key 优先 ===
+EXPECT_BASE_URL=https://multi-key.example.com
+EXPECT_API_KEY=chosen_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+https://multi-key.example.com/v1 random_key-1234567890abcdef
+API_KEY=chosen_key-1234567890abcdef
+--- END ---
+
+=== 47_whitespace_fields | 无冒号、无等号字段行 ===
+EXPECT_BASE_URL=https://whitespace.example.com
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=false
+--- INPUT ---
+BASE_URL https://whitespace.example.com/v1
+API_KEY vendor_key-1234567890abcdef
+--- END ---
+
+=== 48_wrapped_base64 | 被换行折叠的 Base64 Key ===
+EXPECT_BASE_URL=<empty>
+EXPECT_API_KEY=vendor_key-1234567890abcdef
+EXPECT_DECODED=true
+--- INPUT ---
+dmVuZG9yX2tleS0xMjM0
+NTY3ODkwYWJjZGVm
+--- END ---
+
+=== 49_ordinary_prose | 普通文字不产生误报 ===
+EXPECT_BASE_URL=<empty>
+EXPECT_API_KEY=<empty>
+EXPECT_DECODED=false
+--- INPUT ---
+This documentation explains authentication configuration without credentials.
+--- END ---
+
+=== 50_empty_fields | 空字段不产生误报 ===
+EXPECT_BASE_URL=<empty>
+EXPECT_API_KEY=<empty>
+EXPECT_DECODED=false
+--- INPUT ---
+OPENAI_BASE_URL=
+OPENAI_API_KEY=
+--- END ---
