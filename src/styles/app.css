@@ -436,10 +436,94 @@ select {
 /* ---------- Chat ---------- */
 .chat-toolbar {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: minmax(0, 1.35fr) minmax(170px, .85fr) auto;
   gap: 10px;
+  align-items: end;
   flex-shrink: 0;
   margin-bottom: 12px;
+}
+.probe-format {
+  align-self: end;
+  height: 36px;
+  white-space: nowrap;
+}
+
+.wire-strip {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(90deg, rgba(14, 157, 138, 0.08), transparent 42%),
+    var(--bg-sunken);
+}
+.wire-strip.confirmed {
+  border-color: var(--accent-soft-line);
+  background:
+    linear-gradient(90deg, rgba(14, 157, 138, 0.12), transparent 46%),
+    #ffffff;
+}
+.wire-strip.error {
+  border-color: rgba(209, 67, 90, 0.28);
+  background:
+    linear-gradient(90deg, rgba(209, 67, 90, 0.10), transparent 48%),
+    #ffffff;
+}
+.wire-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.wire-head span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.wire-head strong {
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+.wire-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.wire-grid > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wire-grid > .wide { grid-column: 1 / -1; }
+.wire-grid span {
+  color: var(--muted-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wire-grid code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.wire-status {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
 .chat-messages {
@@ -602,5 +686,11 @@ select {
     grid-column: auto;
     grid-row: auto;
     min-height: 420px;
+  }
+  .chat-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .probe-format {
+    width: 100%;
   }
 }

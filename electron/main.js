@@ -79,7 +79,7 @@ ipcMain.on('stream-chat-start', async (event, { requestId, payload }) => {
     await chatTestStream(payload || {}, {
       signal: controller.signal,
       onChunk: (text) => event.sender.send('stream-chat-chunk', { requestId, text }),
-      onDone: (text) => { event.sender.send('stream-chat-done', { requestId, text }); cleanup(); },
+      onDone: (text, protocol) => { event.sender.send('stream-chat-done', { requestId, text, protocol }); cleanup(); },
       onError: (err) => { event.sender.send('stream-chat-error', { requestId, error: err.message || String(err) }); cleanup(); },
     });
   } catch (err) {

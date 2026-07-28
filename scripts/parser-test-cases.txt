@@ -12,6 +12,17 @@ EXPECT_DECODED=false
 https://api.example.com/v1 vendor_key-1234567890abcdef
 --- END ---
 
+=== 44_codex_commented_grok2api | Codex commented grok2api config ===
+EXPECT_BASE_URL=http://127.0.0.1:8001
+EXPECT_API_KEY=g2a_3331fd7adf14_dZMCNP_f1FajWndHT2eDKoGViAD6EV8T
+EXPECT_DECODED=false
+--- INPUT ---
+#base_url = "http://127.0.0.1:8001/v1"
+#experimental_bearer_token = "g2a_3331fd7adf14_dZMCNP_f1FajWndHT2eDKoGViAD6EV8T"
+wire_api = "responses"
+#model = "grok-4.20-0309-reasoning"
+--- END ---
+
 === 02_multiline_unlabeled | 多行：URL 和无字段 Key ===
 EXPECT_BASE_URL=https://api.example.com
 EXPECT_API_KEY=vendor_key-1234567890abcdef

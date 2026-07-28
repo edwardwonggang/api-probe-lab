@@ -10,6 +10,12 @@ const { authHeaders } = require('./probe');
  * - auto: try in order based on model / previous probe
  */
 
+const FORMAT_LABELS = {
+  chat_completions: 'Chat Completions',
+  responses: 'Responses',
+  messages: 'Messages',
+};
+
 function normalizeHistory(history, fallbackMessage) {
   const list = Array.isArray(history) ? history.filter((m) => m && m.role && m.content != null) : [];
   if (list.length) {
@@ -21,9 +27,11 @@ function normalizeHistory(history, fallbackMessage) {
   return [{ role: 'user', content: fallbackMessage || '你好，请用一句话介绍你自己。' }];
 }
 
-function buildBodies(model, history, format) {
+function buildBodies(model, history, format, options = {}) {
   const messages = normalizeHistory(history);
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
+  const maxTokens = Number(options.maxTokens) > 0 ? Number(options.maxTokens) : 1024;
+  const temperature = typeof options.temperature === 'number' ? options.temperature : 0.7;
 
   if (format === 'chat_completions') {
     return {
@@ -31,8 +39,8 @@ function buildBodies(model, history, format) {
       body: {
         model,
         messages,
-        temperature: 0.7,
-        max_tokens: 1024,
+        temperature,
+        max_tokens: maxTokens,
         stream: false,
       },
       extraHeaders: {},
@@ -50,12 +58,12 @@ function buildBodies(model, history, format) {
     return {
       pathCandidates: ['responses', 'v1/responses'],
       bodies: [
-        { model, input, max_output_tokens: 1024 },
-        { model, input: lastUser || messages.map((m) => `${m.role}: ${m.content}`).join('\n') },
+        { model, input, max_output_tokens: maxTokens },
+        { model, input: lastUser || messages.map((m) => `${m.role}: ${m.content}`).join('\n'), max_output_tokens: maxTokens },
         {
           model,
           messages,
-          max_tokens: 1024,
+          max_tokens: maxTokens,
         },
       ],
       extraHeaders: {},
@@ -69,7 +77,7 @@ function buildBodies(model, history, format) {
       .map((m) => ({ role: m.role, content: m.content }));
     const body = {
       model,
-      max_tokens: 1024,
+      max_tokens: maxTokens,
       messages: turnMessages.length ? turnMessages : [{ role: 'user', content: lastUser || '你好' }],
     };
     if (systemParts.length) body.system = systemParts.join('\n');
@@ -203,6 +211,27 @@ function bodiesForFormat(built) {
   return [built.body];
 }
 
+function authStyleFromHeaders(headers = {}) {
+  if (headers['x-api-key']) return 'x-api-key';
+  if (headers['api-key']) return 'api-key';
+  if (headers.Authorization) return 'bearer';
+  return 'none';
+}
+
+function describeProtocol({ format, url, body, headers, latencyMs, stream = false }) {
+  return {
+    format,
+    label: FORMAT_LABELS[format] || format,
+    method: 'POST',
+    url,
+    endpoint: `POST ${url}`,
+    authStyle: authStyleFromHeaders(headers),
+    bodyKeys: Object.keys(body || {}),
+    stream: !!stream,
+    latencyMs,
+  };
+}
+
 async function chatTest(payload) {
   const baseUrl = payload.baseUrl || '';
   const effectiveBaseUrl = payload.effectiveBaseUrl || baseUrl;
@@ -213,6 +242,7 @@ async function chatTest(payload) {
   const proxy = payload.proxy || '';
   const timeoutMs = Number(payload.timeoutMs) || 60000;
   const authStyle = payload.authStyle || 'bearer';
+  const maxTokens = Number(payload.maxTokens) > 0 ? Number(payload.maxTokens) : 1024;
   let format = payload.format || 'auto';
 
   if (!baseUrl && !effectiveBaseUrl) {
@@ -239,7 +269,10 @@ async function chatTest(payload) {
   }
 
   for (const fmt of formats) {
-    const built = buildBodies(model, messages, fmt);
+    const built = buildBodies(model, messages, fmt, {
+      maxTokens,
+      temperature: payload.temperature,
+    });
     const headerVariants =
       fmt === 'messages'
         ? [
@@ -271,6 +304,13 @@ async function chatTest(payload) {
         const url = joinUrl(base, p);
         for (const body of bodiesForFormat(built)) {
           for (const h of uniqueHeaders) {
+            const requestProtocol = describeProtocol({
+              format: fmt,
+              url,
+              body,
+              headers: h,
+              stream: false,
+            });
             const result = await tryOnce({
               url,
               headers: h,
@@ -278,12 +318,15 @@ async function chatTest(payload) {
               proxy,
               timeoutMs,
             });
-            attempts.push({ format: fmt, bodyKeys: Object.keys(body || {}), ...result });
+            const protocol = { ...requestProtocol, latencyMs: result.latencyMs };
+            attempts.push({ ...result, ...protocol });
             if (result.ok && result.json) {
               const reply = extractReply(fmt, result.json, result.raw);
               return {
                 success: true,
                 format: fmt,
+                wireFormat: fmt,
+                protocol,
                 url: result.url,
                 latencyMs: result.latencyMs,
                 reply: reply || '(模型返回空内容)',
@@ -332,6 +375,7 @@ async function chatTestStream(payload, { onChunk = () => {}, onDone = () => {}, 
   const proxy = payload.proxy || '';
   const timeoutMs = Number(payload.timeoutMs) || 60000;
   const authStyle = payload.authStyle || 'bearer';
+  const maxTokens = Number(payload.maxTokens) > 0 ? Number(payload.maxTokens) : 1024;
   let format = payload.format || 'auto';
 
   if (!baseUrl && !effectiveBaseUrl) { onError(new Error('Base URL 不能为空')); return; }
@@ -348,7 +392,10 @@ async function chatTestStream(payload, { onChunk = () => {}, onDone = () => {}, 
   if (!bases.length) { onError(new Error('Base URL 无效')); return; }
 
   for (const fmt of formats) {
-    const built = buildBodies(model, messages, fmt);
+    const built = buildBodies(model, messages, fmt, {
+      maxTokens,
+      temperature: payload.temperature,
+    });
 
     const headerVariants =
       fmt === 'messages'
@@ -380,6 +427,14 @@ async function chatTestStream(payload, { onChunk = () => {}, onDone = () => {}, 
         for (const body of bodiesForFormat(built)) {
           const streamBody = { ...body, stream: true };
           for (const h of uniqueHeaders) {
+            const streamStarted = Date.now();
+            const requestProtocol = describeProtocol({
+              format: fmt,
+              url,
+              body: streamBody,
+              headers: h,
+              stream: true,
+            });
             try {
               const res = await fetchWithProxyStream(url, {
                 method: 'POST',
@@ -450,11 +505,15 @@ async function chatTestStream(payload, { onChunk = () => {}, onDone = () => {}, 
                 if (signal) signal.removeEventListener('abort', onAbort);
               }
               if (aborted) {
-                if (accumulated) onDone(accumulated);
-                else onDone('');
+                const protocol = { ...requestProtocol, latencyMs: Date.now() - streamStarted };
+                if (accumulated) onDone(accumulated, protocol);
+                else onDone('', protocol);
                 return;
               }
-              if (accumulated) { onDone(accumulated); return; }
+              if (accumulated) {
+                onDone(accumulated, { ...requestProtocol, latencyMs: Date.now() - streamStarted });
+                return;
+              }
             } catch (err) {
               if (signal && signal.aborted) {
                 // 中途停止：把已累计内容当作结果回传，结束本次流
@@ -473,6 +532,7 @@ async function chatTestStream(payload, { onChunk = () => {}, onDone = () => {}, 
 module.exports = {
   chatTest,
   chatTestStream,
+  describeProtocol,
   extractReply,
   guessFormatOrder,
   normalizeHistory,

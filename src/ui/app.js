@@ -7,6 +7,7 @@ const state = {
   keyVisible: false,
   messages: [], // {role, content}
   lastSuccessFormat: null,
+  protocolInfo: null,
   sending: false,
   activeRequestId: null, // 当前流式请求 id，用于中途停止
   stopping: false, // 用户是否已主动请求停止本次对话
@@ -166,6 +167,88 @@ function mask(key) {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
+const FORMAT_LABELS = {
+  auto: '自动探测',
+  chat_completions: 'Chat Completions',
+  responses: 'Responses',
+  messages: 'Messages',
+  models: 'Models List',
+};
+
+function formatLabel(format) {
+  return FORMAT_LABELS[format] || format || '未知';
+}
+
+function setText(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text == null || text === '' ? '-' : String(text);
+}
+
+function compactAttempts(attempts = []) {
+  return attempts.slice(0, 20).map((a) => ({
+    ok: !!a.ok,
+    status: a.status,
+    format: a.format,
+    method: a.method || (a.path ? 'GET' : undefined),
+    url: a.url,
+    authStyle: a.authStyle,
+    bodyKeys: a.bodyKeys,
+    error: a.error,
+    bodyPreview: a.bodyPreview,
+    latencyMs: a.latencyMs,
+  }));
+}
+
+function oneLinePreview(text, limit = 160) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function renderWireInfo(info, opts = {}) {
+  const card = $('wireCard');
+  if (!card) return;
+  const isError = opts.kind === 'error';
+  const isConfirmed = !!info && info.format && info.format !== 'models';
+  card.classList.toggle('confirmed', isConfirmed);
+  card.classList.toggle('error', isError);
+
+  if (info) state.protocolInfo = info;
+  if (!info && opts.reset) state.protocolInfo = null;
+
+  const current = info || state.protocolInfo;
+  const emptyText = opts.status || '尚未确认真实对话格式';
+  if (!current) {
+    setText('wireFormat', '待确认');
+    setText('wireMethod', '-');
+    setText('wireAuth', '-');
+    setText('wireStream', '-');
+    setText('wireUrl', '-');
+    setText('wireBody', '-');
+    setText('wireStatus', emptyText);
+    return;
+  }
+
+  const bodyKeys = Array.isArray(current.bodyKeys) ? current.bodyKeys : [];
+  setText('wireFormat', current.format === 'models' ? 'GET /models' : formatLabel(current.format));
+  setText('wireMethod', current.method || 'POST');
+  setText('wireAuth', current.authStyle || '-');
+  setText('wireStream', current.stream === true ? 'true' : current.stream === false ? 'false' : '-');
+  setText('wireUrl', current.url || '-');
+  setText('wireBody', bodyKeys.length ? bodyKeys.join(', ') : '无');
+  setText(
+    'wireStatus',
+    opts.status ||
+      (current.format === 'models'
+        ? '模型列表访问已确认；对话格式等待真实请求确认'
+        : `最近成功：${formatLabel(current.format)}${current.latencyMs ? ` · ${current.latencyMs}ms` : ''}`)
+  );
+}
+
+function setDetails(payload) {
+  const box = $('chatDetails');
+  if (!box) return;
+  box.textContent = payload ? JSON.stringify(payload, null, 2) : '';
+}
+
 function renderModels(models, opts = {}) {
   const maxDisplay = opts.maxDisplay || 50;
   state.models = models || [];
@@ -222,6 +305,7 @@ async function onProbe() {
   $('btnProbe').disabled = true;
   $('btnExtractAndProbe').disabled = true;
   setStatus($('probeStatus'), '正在探测 /models …', 'busy');
+  renderWireInfo(null, { reset: true, status: '正在探测模型列表端点…' });
   log(`开始探测：${cfg.baseUrl}`);
 
   try {
@@ -242,6 +326,17 @@ async function onProbe() {
         .filter(Boolean)
         .join(' · ');
       $('probeMeta').textContent = meta;
+      renderWireInfo(
+        {
+          format: 'models',
+          method: 'GET',
+          url: result.modelsUrl,
+          authStyle: result.authStyle,
+          bodyKeys: [],
+          latencyMs: result.latencyMs,
+        },
+        { status: '模型列表访问已确认；对话格式等待真实请求确认' }
+      );
       setStatus(
         $('probeStatus'),
         result.partial
@@ -257,10 +352,17 @@ async function onProbe() {
       state.selectedModel = '';
       $('chatModel').value = 'none';
       $('probeMeta').textContent = '探测失败';
+      renderWireInfo(null, {
+        kind: 'error',
+        reset: true,
+        status: result.error || '模型列表未连通；可手动填模型后探测真实对话格式',
+      });
+      setDetails({ modelProbeAttempts: compactAttempts(result.attempts || []) });
       setStatus($('probeStatus'), result.error || '探测失败', 'err');
       log(result.error || '探测失败', 'error');
       (result.attempts || []).slice(0, 12).forEach((a) => {
-        log(`${a.url} · ${a.authStyle} · ${a.error || a.status}`, 'error');
+        const preview = oneLinePreview(a.bodyPreview);
+        log(`${a.url} · ${a.authStyle} · ${a.error || a.status}${preview ? ` · ${preview}` : ''}`, 'error');
       });
     }
   } catch (err) {
@@ -269,6 +371,82 @@ async function onProbe() {
   } finally {
     $('btnProbe').disabled = false;
     $('btnExtractAndProbe').disabled = false;
+    persistConfig();
+  }
+}
+
+async function onProbeFormat() {
+  const cfg = currentConfig();
+  const model = $('chatModel').value.trim();
+  const format = $('chatFormat').value;
+  const probe = state.probeResult || {};
+
+  if (!cfg.baseUrl) {
+    setStatus($('chatStatus'), '请先填写 Base URL', 'err');
+    return;
+  }
+  if (!cfg.apiKey) {
+    setStatus($('chatStatus'), '请先填写 API Key', 'err');
+    return;
+  }
+  if (!model || model === 'none') {
+    setStatus($('chatStatus'), '请先填写模型名', 'err');
+    return;
+  }
+
+  const btn = $('btnProbeFormat');
+  if (btn) btn.disabled = true;
+  setStatus($('chatStatus'), '正在探测真实对话格式…', 'busy');
+  renderWireInfo(state.protocolInfo, { status: '正在等待真实成功端点…' });
+  log(`开始探测真实格式：format=${format} model=${model}`);
+
+  try {
+    const result = await apiProbe.chatTest({
+      ...cfg,
+      model,
+      message: 'ping',
+      history: [{ role: 'user', content: 'ping' }],
+      format,
+      effectiveBaseUrl: probe.effectiveBaseUrl || cfg.baseUrl,
+      authStyle: probe.authStyle || 'bearer',
+      lastSuccessFormat: state.lastSuccessFormat,
+      timeoutMs: Math.max(cfg.timeoutMs || 0, 20000),
+      maxTokens: 8,
+      temperature: 0,
+    });
+
+    if (result.success) {
+      const protocol = result.protocol || {
+        format: result.format,
+        method: 'POST',
+        url: result.url,
+        latencyMs: result.latencyMs,
+      };
+      state.lastSuccessFormat = protocol.format || result.format || state.lastSuccessFormat;
+      renderWireInfo(protocol, { status: `格式探测成功 · ${formatLabel(protocol.format)} · ${result.latencyMs}ms` });
+      setStatus($('chatStatus'), `格式：${formatLabel(protocol.format)} · ${result.latencyMs}ms`, 'ok');
+      setDetails({
+        protocol,
+        replyPreview: (result.reply || '').slice(0, 500),
+        attempts: compactAttempts(result.attempts || []),
+      });
+      log(`真实格式确认：${protocol.endpoint || `${protocol.method || 'POST'} ${protocol.url}`} · ${formatLabel(protocol.format)}`, 'ok');
+    } else {
+      renderWireInfo(null, {
+        kind: 'error',
+        reset: true,
+        status: '真实对话格式探测失败',
+      });
+      setDetails({ chatProbeAttempts: compactAttempts(result.attempts || []) });
+      setStatus($('chatStatus'), result.error || '格式探测失败', 'err');
+      log(result.error || '格式探测失败', 'error');
+    }
+  } catch (err) {
+    renderWireInfo(null, { kind: 'error', reset: true, status: '真实对话格式探测异常' });
+    setStatus($('chatStatus'), err.message || String(err), 'err');
+    log(err.message || String(err), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
     persistConfig();
   }
 }
@@ -330,7 +508,9 @@ async function onChat() {
   $('btnChat').disabled = false;
   $('btnChat').textContent = '停止';
   $('btnChat').classList.add('stop');
+  if ($('btnProbeFormat')) $('btnProbeFormat').disabled = true;
   setStatus($('chatStatus'), '正在请求模型…', 'busy');
+  renderWireInfo(state.protocolInfo, { status: '正在请求模型，成功后刷新真实访问格式…' });
   log(`对话发送 format=${format} model=${model} chars=${message.length}`);
 
   // create placeholder assistant message
@@ -357,7 +537,6 @@ async function onChat() {
     const requestId = apiProbe.streamChatStart(payload);
     state.activeRequestId = requestId;
     let fullContent = '';
-    let stopped = false;
 
     const chunkHandler = ({ requestId: rid, text }) => {
       if (rid !== requestId) return;
@@ -369,12 +548,20 @@ async function onChat() {
       }
     };
 
-    const doneHandler = ({ requestId: rid, text }) => {
+    const doneHandler = ({ requestId: rid, text, protocol }) => {
       if (rid !== requestId) return;
       cleanup();
       if (text) fullContent = text;
       const wasStopped = state.stopping;
       const latency = Date.now() - startTime;
+      const protocolLabel = protocol?.format ? formatLabel(protocol.format) : '';
+      if (protocol) {
+        state.lastSuccessFormat = protocol.format || state.lastSuccessFormat;
+        renderWireInfo(protocol, {
+          status: `${wasStopped ? '停止前已确认' : '最近对话成功'} · ${protocolLabel} · ${protocol.latencyMs || latency}ms`,
+        });
+        setDetails({ protocol });
+      }
       const last = state.messages[state.messages.length - 1];
       if (last && last.role === 'assistant') {
         const noContent = last.content === '▊';
@@ -382,12 +569,23 @@ async function onChat() {
           state.messages.pop();
         } else {
           last.content = fullContent || (noContent ? '(已停止，无内容)' : '(已停止)');
-          last.meta = wasStopped ? `已停止 · ${latency}ms` : `完成 · ${latency}ms`;
+          last.meta = wasStopped
+            ? `已停止 · ${protocolLabel || 'stream'} · ${latency}ms`
+            : `${protocolLabel || '完成'} · ${latency}ms`;
         }
         renderChat();
       }
-      setStatus($('chatStatus'), wasStopped ? '已停止' : `成功 · ${latency}ms`, wasStopped ? 'busy' : 'ok');
-      log(wasStopped ? `对话已停止 (${latency}ms)` : `对话完成 (${latency}ms)`, wasStopped ? 'info' : 'ok');
+      setStatus(
+        $('chatStatus'),
+        wasStopped ? '已停止' : `成功 · ${protocolLabel || 'stream'} · ${latency}ms`,
+        wasStopped ? 'busy' : 'ok'
+      );
+      log(
+        protocol
+          ? `对话完成：${protocol.endpoint || `${protocol.method || 'POST'} ${protocol.url}`} · ${protocolLabel} (${latency}ms)`
+          : (wasStopped ? `对话已停止 (${latency}ms)` : `对话完成 (${latency}ms)`),
+        wasStopped ? 'info' : 'ok'
+      );
       finalize();
     };
 
@@ -420,6 +618,7 @@ async function onChat() {
       $('btnChat').disabled = false;
       $('btnChat').textContent = '发送';
       $('btnChat').classList.remove('stop');
+      if ($('btnProbeFormat')) $('btnProbeFormat').disabled = false;
     }
   } catch (err) {
     const msg = err?.message || String(err);
@@ -436,6 +635,7 @@ async function onChat() {
     $('btnChat').disabled = false;
     $('btnChat').textContent = '发送';
     $('btnChat').classList.remove('stop');
+    if ($('btnProbeFormat')) $('btnProbeFormat').disabled = false;
   }
 }
 
@@ -511,6 +711,7 @@ function wire() {
     await onProbe();
   });
   $('btnProbe').addEventListener('click', onProbe);
+  $('btnProbeFormat').addEventListener('click', onProbeFormat);
   $('btnChat').addEventListener('click', (e) => {
     e.preventDefault();
     onChat();
@@ -587,6 +788,8 @@ function wire() {
       api_key: cfg.apiKey,
       models: state.models,
       auth_style: state.probeResult?.authStyle || 'bearer',
+      last_success_format: state.lastSuccessFormat || undefined,
+      wire_protocol: state.protocolInfo || undefined,
       proxy: cfg.proxy || undefined,
     };
     await apiProbe.clipboardWrite(JSON.stringify(payload, null, 2));
@@ -618,6 +821,7 @@ function wire() {
   });
 
   renderChat();
+  renderWireInfo(null, { reset: true });
   log('API Probe Lab 已就绪 · 系统代理自动读取 · Enter 发送对话');
 }
 

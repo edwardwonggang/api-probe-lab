@@ -22,6 +22,28 @@ function normalizeProxy(proxy) {
   return p;
 }
 
+function isLoopbackHostname(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  if (host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+  if (host === '0.0.0.0') return true;
+  return /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+function shouldBypassProxyForUrl(url) {
+  try {
+    return isLoopbackHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function proxyForUrl(proxy, url) {
+  const p = normalizeProxy(proxy);
+  if (!p) return '';
+  return shouldBypassProxyForUrl(url) ? '' : p;
+}
+
 function createProxyDispatcher(proxy) {
   const p = normalizeProxy(proxy);
   if (!p) return new Agent({ connect: { rejectUnauthorized: false } });
@@ -110,16 +132,17 @@ async function fetchWithProxy(url, options = {}) {
   } = options;
 
   const p = normalizeProxy(proxy);
+  const effectiveProxy = proxyForUrl(p, url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     // SOCKS -> node path
-    if (p && /^socks/i.test(p)) {
-      return await fetchWithNodeAgents(url, { method, headers, body, proxy: p, timeoutMs, signal: controller.signal });
+    if (effectiveProxy && /^socks/i.test(effectiveProxy)) {
+      return await fetchWithNodeAgents(url, { method, headers, body, proxy: effectiveProxy, timeoutMs, signal: controller.signal });
     }
 
-    const dispatcher = createProxyDispatcher(p);
+    const dispatcher = createProxyDispatcher(effectiveProxy);
     const res = await undiciFetch(url, {
       method,
       headers,
@@ -145,9 +168,9 @@ async function fetchWithProxy(url, options = {}) {
       throw abortError(`Request timeout after ${timeoutMs}ms`);
     }
     // Fallback for edge proxy cases
-    if (p && !/^socks/i.test(p)) {
+    if (effectiveProxy && !/^socks/i.test(effectiveProxy)) {
       try {
-        return await fetchWithNodeAgents(url, { method, headers, body, proxy: p, timeoutMs, signal: controller.signal });
+        return await fetchWithNodeAgents(url, { method, headers, body, proxy: effectiveProxy, timeoutMs, signal: controller.signal });
       } catch (err2) {
         throw err2;
       }
@@ -170,6 +193,7 @@ function joinUrl(base, pathPart) {
 async function fetchWithProxyStream(url, options = {}) {
   const { method = 'GET', headers = {}, body, proxy = '', timeoutMs = 30000, signal } = options;
   const p = normalizeProxy(proxy);
+  const effectiveProxy = proxyForUrl(p, url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   // 联动外部 signal（用于中途停止）
@@ -180,14 +204,14 @@ async function fetchWithProxyStream(url, options = {}) {
   }
 
   try {
-    if (p && /^socks/i.test(p)) {
+    if (effectiveProxy && /^socks/i.test(effectiveProxy)) {
       const response = await fetchWithNodeAgents(url, {
-        method, headers, body, proxy: p, timeoutMs, signal: controller.signal,
+        method, headers, body, proxy: effectiveProxy, timeoutMs, signal: controller.signal,
       });
       return bufferedStreamResponse(response);
     }
 
-    const dispatcher = createProxyDispatcher(p);
+    const dispatcher = createProxyDispatcher(effectiveProxy);
     const res = await undiciFetch(url, {
       method, headers, body, dispatcher, signal: controller.signal,
     });
@@ -196,10 +220,10 @@ async function fetchWithProxyStream(url, options = {}) {
     if (controller.signal.aborted || (signal && signal.aborted)) {
       throw abortError(signal?.aborted ? 'Request aborted' : `Request timeout after ${timeoutMs}ms`);
     }
-    if (p && !/^socks/i.test(p)) {
+    if (effectiveProxy && !/^socks/i.test(effectiveProxy)) {
       try {
         const response = await fetchWithNodeAgents(url, {
-          method, headers, body, proxy: p, timeoutMs, signal: controller.signal,
+          method, headers, body, proxy: effectiveProxy, timeoutMs, signal: controller.signal,
         });
         return bufferedStreamResponse(response);
       } catch (err2) { throw err2; }
@@ -240,6 +264,8 @@ module.exports = {
   fetchWithProxy,
   fetchWithProxyStream,
   createProxyDispatcher,
+  proxyForUrl,
+  shouldBypassProxyForUrl,
   normalizeProxy,
   joinUrl,
 };

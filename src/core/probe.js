@@ -1,4 +1,4 @@
-const { fetchWithProxy, joinUrl } = require('./http');
+const { fetchWithProxy, joinUrl, shouldBypassProxyForUrl } = require('./http');
 const { normalizeBaseUrl } = require('./parser');
 
 function authHeaders(apiKey, style = 'bearer') {
@@ -80,6 +80,38 @@ async function tryGetModels(url, headers, proxy, timeoutMs) {
   }
 }
 
+function summarizeProbeFailure(attempts) {
+  const list = Array.isArray(attempts) ? attempts.filter((a) => a && a.url) : [];
+  if (!list.length) return '所有探测路径均失败，请检查 Base URL / API Key / 代理';
+
+  const statuses = list.map((a) => Number(a.status) || 0);
+  const positiveStatuses = statuses.filter((s) => s > 0);
+  const uniqueStatuses = [...new Set(positiveStatuses)];
+  const allPathsAreModels = list.every((a) => /(?:^|\/)(?:v1\/)?models$/i.test(a.path || a.url || ''));
+
+  if (positiveStatuses.length === list.length && uniqueStatuses.length === 1 && uniqueStatuses[0] === 502 && allPathsAreModels) {
+    return '模型列表接口返回 502（Bad Gateway）：对方网关没有成功处理 /models。通常是供应商未实现模型列表或中转未转发该路径，Base URL/API Key/代理不一定错；请手动填写模型名后点“探测格式”。';
+  }
+
+  if (positiveStatuses.length === list.length && positiveStatuses.every((s) => s >= 500)) {
+    return `模型列表接口全部返回 ${uniqueStatuses.join('/')}：对方服务端或中转网关异常。可稍后重试，或手动填写模型名后探测真实对话格式。`;
+  }
+
+  if (positiveStatuses.length === list.length && positiveStatuses.every((s) => s === 401 || s === 403)) {
+    return '模型列表接口返回 401/403：更像是 API Key、鉴权 Header 或账号权限问题。';
+  }
+
+  if (positiveStatuses.length === list.length && positiveStatuses.every((s) => s === 404)) {
+    return '模型列表接口返回 404：该服务很可能不提供 /models 路径。请手动填写模型名后探测真实对话格式。';
+  }
+
+  if (statuses.every((s) => s === 0)) {
+    return '模型列表接口没有收到有效 HTTP 响应：请检查网络、代理、DNS 或 TLS 连接。';
+  }
+
+  return '所有模型列表探测路径均失败；这不一定代表对话接口不可用，请手动填写模型名后点“探测格式”。';
+}
+
 /**
  * Probe base URL variants (/v1 or not), auth styles, and list models.
  */
@@ -145,7 +177,7 @@ async function probeEndpoint(payload) {
           if (result.models.length >= 1) {
             // continue a bit more only if we want better, but stop deep scanning
             // break out after first success for speed
-            return finalize(best, attempts, baseUrl, apiKey);
+            return finalize(best, attempts, baseUrl, apiKey, proxy);
           }
         }
       }
@@ -171,13 +203,22 @@ async function probeEndpoint(payload) {
 
   return {
     success: false,
-    error: '所有探测路径均失败，请检查 Base URL / API Key / 代理',
+    error: summarizeProbeFailure(attempts),
     attempts,
   };
 }
 
-function finalize(best, attempts, inputBase, apiKey) {
+function finalize(best, attempts, inputBase, apiKey, proxy) {
   const usesV1 = /\/v1$/i.test(best.base) || /\/v1\//i.test(best.url);
+  const notes = [
+    `成功：${best.url}`,
+    `鉴权方式：${best.authStyle}`,
+    `模型数量：${best.models.length}`,
+    usesV1 ? 'Base 使用 /v1 前缀' : 'Base 不使用 /v1 前缀',
+  ];
+  if (proxy && shouldBypassProxyForUrl(best.url)) {
+    notes.push('检测到本机地址，已自动绕过代理直连');
+  }
   return {
     success: true,
     partial: false,
@@ -189,12 +230,7 @@ function finalize(best, attempts, inputBase, apiKey) {
     models: best.models,
     latencyMs: best.latencyMs,
     attempts,
-    notes: [
-      `成功：${best.url}`,
-      `鉴权方式：${best.authStyle}`,
-      `模型数量：${best.models.length}`,
-      usesV1 ? 'Base 使用 /v1 前缀' : 'Base 不使用 /v1 前缀',
-    ],
+    notes,
     inputBase,
     apiKeyPresent: !!apiKey,
   };
@@ -204,4 +240,5 @@ module.exports = {
   probeEndpoint,
   authHeaders,
   parseModels,
+  summarizeProbeFailure,
 };

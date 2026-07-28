@@ -13,7 +13,7 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win --x64",
     "dist:all": "electron-builder --mac --win",
-    "test": "node scripts/smoke-parser.js && node scripts/smoke-stream.js"
+    "test": "node scripts/smoke-parser.js && node scripts/smoke-stream.js && node scripts/smoke-probe.js"
   },
   "dependencies": {
     "https-proxy-agent": "^7.0.6",

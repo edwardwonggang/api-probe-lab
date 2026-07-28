@@ -1,4 +1,4 @@
-4b4c24329b88756cd47b8adee9a63bdbb57a4421f359d59af6f4d579e523e48f  API Probe Lab 1.2.1.exe
-8b778ecbfaa8180ee904edfb9fec9cfcdca5703c2d82d2fd2983c0c6f40d6d52  API Probe Lab-1.2.1-win.zip (original, reconstructed)
-6da76900b7a973f7eabd6362e8c4239f9d2220496b7ef793464e2776d7a5e991  API Probe Lab-1.2.1-win.zip.part-aa
-6f145653ffbbe7f64f46e6fad2c6139b9ca1dcc4863ca12e8a5a0c724e566e80  API Probe Lab-1.2.1-win.zip.part-ab
+933279a5b00d82acc1ab0a36c0112984ad6ab9214e6eb1dbdb1ba54bbfa17198  API Probe Lab 1.3.0.exe
+3c3f32f6e5ee236435300aec58b576687641c02a4083b584c7f0cd46a3ea8edb  API Probe Lab-1.3.0-win.zip (original, reconstructed)
+4cc4a62d63f3f967b874b5433b8b994826f6a3f0f42834479858e8c9e17a146a  API Probe Lab-1.3.0-win.zip.part-aa
+f6fb2d875b505430aae25a0cecbcf34c711b05a1aa8565ec5e3d1c75d83a3f4d  API Probe Lab-1.3.0-win.zip.part-ab

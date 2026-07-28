@@ -1,7 +1,7 @@
 node_modules/
 release/*
-!release/API Probe Lab 1.2.1.exe
-!release/API Probe Lab-1.2.1-win.zip.part-*
+!release/API Probe Lab 1.3.0.exe
+!release/API Probe Lab-1.3.0-win.zip.part-*
 !release/README.md
 !release/SHA256SUMS.txt
 dist/

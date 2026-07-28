@@ -13,7 +13,7 @@ const MAX_DECODED_BYTES = 256 * 1024;
 const URL_RE = /https?:\/\/[^\s"'`<>\[\]{}|\\^,;]+/gi;
 const SCHEMELESS_URL_RE = /(?:^|[\s("'`=,:])((?:localhost|(?:\d{1,3}\.){3}\d{1,3}|(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,62})\.)+[A-Za-z]{2,63})(?::\d{2,5})?(?:\/[^\s"'`<>\[\]{}|\\^,;]*)?)/gim;
 const BEARER_RE = /\bbearer\s*[:=]?\s*([A-Za-z0-9][A-Za-z0-9._~+\/-]{7,}={0,2})/gi;
-const DIRECT_TOKEN_RE = /[A-Za-z0-9][A-Za-z0-9._~+\/-]{7,}={0,2}/g;
+const DIRECT_TOKEN_RE = /[A-Za-z0-9][A-Za-z0-9._~+\/_-]{7,}={0,2}/g;
 const BASE64_CANDIDATE_RE = /^(?:[A-Za-z0-9+/]+={0,2}|[A-Za-z0-9_-]+={0,2})$/;
 
 const KEY_LABEL_SOURCE = String.raw`(?:[A-Za-z0-9]+[_-])*(?:api[_\s-]?key|access[_\s-]?token|auth[_\s-]?token|bearer[_\s-]?token|secret[_\s-]?key|api[_\s-]?token|authorization|credential|password|token|secret|auth|key)`;
@@ -44,8 +44,16 @@ const URL_LINE_RE = new RegExp(
   String.raw`^\s*(?:export\s+)?['"]?(${URL_LABEL_SOURCE})['"]?\s+${VALUE_SOURCE}\s*$`,
   'gim'
 );
+const COMMENTED_KEY_LINE_RE = new RegExp(
+  String.raw`^\s*#\s*['"]?(${KEY_LABEL_SOURCE})['"]?\s*(?::|=|=>)\s*${VALUE_SOURCE}\s*$`,
+  'gim'
+);
+const COMMENTED_URL_LINE_RE = new RegExp(
+  String.raw`^\s*#\s*['"]?(${URL_LABEL_SOURCE})['"]?\s*(?::|=|=>)\s*${VALUE_SOURCE}\s*$`,
+  'gim'
+);
 
-const KNOWN_KEY_PREFIX_RE = /^(?:sk-ant-|sk-proj-|sk-|gsk_|xai-|key-|ak-|AIza|hf_|nvapi-|or-)[A-Za-z0-9._~-]{6,}$/i;
+const KNOWN_KEY_PREFIX_RE = /^(?:sk-ant-|sk-proj-|sk-|gsk_|g2a_|xai-|key-|ak-|AIza|hf_|nvapi-|or-)[A-Za-z0-9._~-]{6,}$/i;
 const PLACEHOLDER_RE = /^(?:x+|\*+|bearer|your[_-]?(?:api[_-]?)?key|api[_-]?key|token|secret|password|placeholder|changeme|none|null|undefined|example)$|(?:^|[_-])(?:x{4,}|placeholder|changeme|your[_-]?key)(?:$|[_-])/i;
 const FIELD_NAME_RE = /^(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth[_-]?token|bearer[_-]?token|secret[_-]?key|api[_-]?token|authorization|credential|password|token|secret|auth|key|base[_-]?url|api[_-]?base|endpoint|server|host|url)$/i;
 
@@ -464,6 +472,27 @@ function collectLabeledValues(state, text, context) {
     collectUrlDetails(state, pickCapturedValue(match), {
       score: 108 + (context.scoreBoost || 0),
       source: 'whitespace-field',
+      depth: context.depth,
+      encodedRaw: context.encodedRaw,
+    });
+  }
+
+  COMMENTED_KEY_LINE_RE.lastIndex = 0;
+  while ((match = COMMENTED_KEY_LINE_RE.exec(text)) !== null) {
+    considerKey(state, pickCapturedValue(match), {
+      score: 96 + (context.scoreBoost || 0),
+      source: 'commented-field',
+      labeled: true,
+      depth: context.depth,
+      encodedRaw: context.encodedRaw,
+    });
+  }
+
+  COMMENTED_URL_LINE_RE.lastIndex = 0;
+  while ((match = COMMENTED_URL_LINE_RE.exec(text)) !== null) {
+    collectUrlDetails(state, pickCapturedValue(match), {
+      score: 96 + (context.scoreBoost || 0),
+      source: 'commented-field',
       depth: context.depth,
       encodedRaw: context.encodedRaw,
     });

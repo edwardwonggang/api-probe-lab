@@ -12,6 +12,7 @@
 - 拉取并展示 **模型列表**
 - **真实多轮对话**（Enter 发送，Shift+Enter 换行）
 - 多格式：`chat/completions` · `responses` · `messages`
+- 显示最近一次真实成功访问的 **请求格式 / Method / URL / Body 字段 / Stream 状态**
 - **系统代理自动读取**（macOS `scutil` / Windows 注册表 / 环境变量），支持手动修改
 - HTTP / HTTPS / SOCKS5 代理测试
 

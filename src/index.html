@@ -97,7 +97,7 @@
             <h2>3. 真实对话测试</h2>
             <div class="row gap-sm">
               <button type="button" class="btn tiny" id="btnClearChat">清空对话</button>
-              <button type="button" class="btn tiny" id="btnToggleDetails">原始响应</button>
+              <button type="button" class="btn tiny" id="btnToggleDetails">请求详情</button>
             </div>
           </div>
 
@@ -116,6 +116,22 @@
                 <option value="messages">messages (Anthropic)</option>
               </select>
             </label>
+            <button type="button" class="btn secondary probe-format" id="btnProbeFormat">探测格式</button>
+          </div>
+
+          <div class="wire-strip" id="wireCard" aria-live="polite">
+            <div class="wire-head">
+              <span>真实访问</span>
+              <strong id="wireFormat">待确认</strong>
+            </div>
+            <div class="wire-grid">
+              <div><span>Method</span><code id="wireMethod">-</code></div>
+              <div><span>Auth</span><code id="wireAuth">-</code></div>
+              <div><span>Stream</span><code id="wireStream">-</code></div>
+              <div class="wide"><span>URL</span><code id="wireUrl">-</code></div>
+              <div class="wide"><span>Body</span><code id="wireBody">-</code></div>
+            </div>
+            <div class="wire-status" id="wireStatus">尚未确认真实对话格式</div>
           </div>
 
           <div class="chat-messages" id="chatMessages">
